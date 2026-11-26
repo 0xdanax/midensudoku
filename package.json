@@ -1,0 +1,17 @@
+{
+  "name": "midensudoku",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@miden-sdk/miden-sdk": "^0.17.10",
+    "@noble/curves": "1.9.1",
+    "@noble/hashes": "1.8.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  }
+}

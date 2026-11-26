@@ -1,0 +1,20 @@
+{
+  // The name must match your Worker's name in the Cloudflare dashboard.
+  "name": "midensudoku",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // The game files. Requests to /api/* go to src/worker.js.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  // Cloud saves. Replace PASTE_DATABASE_ID_HERE with your D1 database ID (see SETUP.md).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "midensudoku-db",
+      "database_id": "PASTE_DATABASE_ID_HERE"
+    }
+  ]
+}
