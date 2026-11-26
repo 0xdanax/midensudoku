@@ -1,9 +1,10 @@
 {
   "name": "midensudoku",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/copy-miden.mjs",
     "build": "node scripts/copy-miden.mjs",
     "deploy": "wrangler deploy"
   },
