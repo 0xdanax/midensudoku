@@ -161,6 +161,19 @@ export default {
       try { return await api(req, env, url); }
       catch (e) { return fail(500, 'Server error: ' + (e.message || e)); }
     }
-    return env.ASSETS.fetch(req);
+    const res = await env.ASSETS.fetch(req);
+    // Big toolkit files are stored compressed (see scripts/copy-miden.mjs). Serve <file>.br as <file>.
+    if (res.status === 404 && url.pathname.startsWith('/miden/') && req.method === 'GET') {
+      const br = await env.ASSETS.fetch(new Request(new URL(url.pathname + '.br', url), req));
+      if (br.ok) {
+        const type = url.pathname.endsWith('.wasm') ? 'application/wasm' : url.pathname.endsWith('.js') ? 'text/javascript' : 'application/octet-stream';
+        return new Response(br.body, {
+          status: 200,
+          headers: { 'content-type': type, 'content-encoding': 'br', 'cache-control': 'public, max-age=86400' },
+          encodeBody: 'manual'
+        });
+      }
+    }
+    return res;
   }
 };

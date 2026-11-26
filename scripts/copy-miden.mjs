@@ -2,6 +2,7 @@
 // (Cloudflare's server can't run it, so the browser builds the sign-in message.)
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 
 const root = path.resolve('node_modules/@miden-sdk/miden-sdk');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -23,6 +24,19 @@ fs.cpSync(root, dest, {
   }
 });
 fs.writeFileSync(path.join(dest, 'entry.json'), JSON.stringify({ entry: entry.replace(/^\.\//, ''), lazy: !!lazy, version: pkg.version }));
+
+// Cloudflare refuses static files over 25 MB, so big files (the .wasm engine) are stored
+// brotli-compressed as <name>.br. src/worker.js serves them with Content-Encoding: br.
+const LIMIT = 25 * 1048576, COMPRESS_OVER = 20 * 1048576;
+(function squeeze(d) { for (const f of fs.readdirSync(d)) { const p = path.join(d, f), s = fs.statSync(p);
+  if (s.isDirectory()) { squeeze(p); continue; }
+  if (s.size <= COMPRESS_OVER) continue;
+  const buf = fs.readFileSync(p);
+  const br = zlib.brotliCompressSync(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buf.length } });
+  fs.writeFileSync(p + '.br', br); fs.unlinkSync(p);
+  console.log(`Compressed ${path.relative(dest, p)}: ${(buf.length / 1048576).toFixed(1)} MB -> ${(br.length / 1048576).toFixed(1)} MB`);
+  if (br.length > LIMIT) console.warn('WARNING: still over 25 MB after compression: ' + path.relative(dest, p));
+} })(dest);
 
 let total = 0, biggest = ['', 0];
 (function walk(d) { for (const f of fs.readdirSync(d)) { const p = path.join(d, f), s = fs.statSync(p);
