@@ -321,6 +321,9 @@ body.hasTabs .screen{padding-bottom:calc(74px + env(safe-area-inset-bottom))}
 .bc-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
 .bc-title{font-size:20px;font-weight:700;white-space:nowrap}
 .bc-sub{font-size:14px;color:#9B9388;font-weight:600}
+.bread-btn.on{background:var(--soft);color:var(--blue)}
+.bread-dot{width:8px;height:8px;border-radius:50%;background:#2FB36B;display:inline-block;margin-left:2px}
+.bread-dot.warn{background:#E8A21A}
 .bread-btn{flex:none;height:38px;padding:0 18px;border-radius:20px;background:var(--blue);color:#fff;font-size:15px;font-weight:800;display:grid;place-items:center}
 @media (min-width: 700px) and (min-height: 560px){ .bread-pill{top:18px;right:22px} .bread-pill:hover{background:var(--soft)} }
 
@@ -490,8 +493,9 @@ body.hasTabs .screen{padding-bottom:calc(74px + env(safe-area-inset-bottom))}
   <section class="screen" id="privacy">
     <div class="m-head"><button class="back" data-back="me" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></button><h2>Privacy</h2><span></span></div>
     <div class="m-body"><div class="prose">
-      Miden Sudoku doesn't collect or send any personal information.<br><br>
-      Your current game, best times and statistics are saved only in this browser on this device. Clearing your browser data removes them.
+      Miden Sudoku doesn't collect personal information, and it never asks for your name or email.<br><br>
+      Without Bread, your games, best times, statistics and trophies are saved only in this browser on this device. Clearing your browser data removes them.<br><br>
+      If you sign in with Bread, your statistics, best times, daily challenges and trophies are also saved on the Miden Sudoku server so they follow you to other devices. They're stored under an ID made from your Bread login key for this website, not your wallet address. Signing in only proves you own the account. It can't move funds or approve transactions. Disconnect at any time from Me.
     </div></div>
   </section>
 
@@ -786,9 +790,10 @@ function generate(level) {
 (function () {
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
+let storeHook = null;
 const store = {
   get(k, d) { try { const v = localStorage.getItem('msudoku.' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
-  set(k, v) { try { if (v === null) localStorage.removeItem('msudoku.' + k); else localStorage.setItem('msudoku.' + k, JSON.stringify(v)); } catch (e) {} }
+  set(k, v, quiet) { try { if (v === null) localStorage.removeItem('msudoku.' + k); else localStorage.setItem('msudoku.' + k, JSON.stringify(v)); } catch (e) {} if (!quiet && storeHook) storeHook(k); }
 };
 const MAX_MISTAKES = 3, MAX_HINTS = 3;
 const pad2 = n => String(n).padStart(2, '0');
@@ -1601,13 +1606,6 @@ $('continueBtn').onclick = () => {
 $('dailyPlay').onclick = e => { e.stopPropagation(); const tk = todayKey(); if (dailyDone()[tk]) openDaily(); else { sfx('tap'); startDaily(tk); } };
 $('dailyCard').addEventListener('click', () => openDaily());
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => t.dataset.tab === 'daily' ? openDaily() : show(t.dataset.tab)));
-document.querySelectorAll('[data-bread]').forEach(b => b.addEventListener('click', () => {
-  sfx('tap');
-  openModal('<div class="ico" style="background:#FDE3D2;color:#E05108"><svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H17a2 2 0 0 1 2 2v1.5"/><rect x="3.5" y="7.5" width="17" height="12" rx="2.5"/><path d="M20.5 11.5h-4a2 2 0 0 0 0 4h4"/></svg></div>' +
-    '<h2>Connect Bread</h2><p>Connecting your Bread wallet is coming with the Miden Sudoku website. Once connected, your stats, best times, daily challenges and trophies will follow you to any device.</p>' +
-    '<div class="acts"><button class="btn primary" id="mOk">Got it</button><a class="btn ghost" style="display:grid;place-items:center;text-decoration:none" href="https://www.miden.xyz/wallet" target="_blank" rel="noopener">Get Bread</a></div>');
-  $('mOk').onclick = closeModal;
-}));
 $('modalDim').addEventListener('click', e => { if (e.target.id === 'modalDim' && $('mOk') && !S) closeModal(); });
 $('openAwards').onclick = () => { awTab = 'daily'; show('awards'); };
 document.querySelectorAll('[data-soon]').forEach(b => b.addEventListener('click', () => toast(b.dataset.soon + ' is coming soon')));
@@ -1815,6 +1813,215 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && runStart) wake(true);
 });
 window.addEventListener('pagehide', () => { if (current === 'game') { stopClock(); save(); } });
+
+/* ---------------- Bread wallet + cloud save ---------------- */
+// Inside Claude the game runs in a frame, where Bread can't reach it, so it shows a preview message there.
+const IN_FRAME = (() => { try { return window.top !== window.self; } catch (e) { return true; } })();
+const IS_PHONE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const WALLET_ICON = '<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H17a2 2 0 0 1 2 2v1.5"/><rect x="3.5" y="7.5" width="17" height="12" rx="2.5"/><path d="M20.5 11.5h-4a2 2 0 0 0 0 4h4"/></svg>';
+const breadIco = '<div class="ico" style="background:#FDE3D2;color:#E05108">' + WALLET_ICON + '</div>';
+let acct = store.get('acct', null);   // { address, player, token, synced }
+let syncTimer = 0, syncing = false;
+
+const errText = e => String((e && (e.message || e.error)) || e || 'Unknown error');
+function toHex(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') {
+    if (/^(0x)?[0-9a-f]+$/i.test(v)) return v.replace(/^0x/i, '').toLowerCase();
+    try { return Array.from(atob(v), c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(''); } catch (e) { return v; }
+  }
+  if (v instanceof ArrayBuffer) v = new Uint8Array(v);
+  if (ArrayBuffer.isView(v) || Array.isArray(v)) return Array.from(v, x => (x & 255).toString(16).padStart(2, '0')).join('');
+  if (typeof v.serialize === 'function') return toHex(v.serialize());
+  if (typeof v.toString === 'function') return toHex(v.toString());
+  return '';
+}
+function fromHex(h) { const s = h.replace(/^0x/i, ''); const b = new Uint8Array(s.length / 2); for (let i = 0; i < b.length; i++) b[i] = parseInt(s.substr(i * 2, 2), 16); return b; }
+const shortAddr = a => !a ? 'Bread' : a.length > 14 ? a.slice(0, 6) + '…' + a.slice(-4) : a;
+
+async function api(path, body, token) {
+  const r = await fetch('/api' + path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: Object.assign({ 'content-type': 'application/json' }, token ? { authorization: 'Bearer ' + token } : {}),
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+  return j;
+}
+function waitForWallet(ms) {
+  return new Promise(res => { const t0 = Date.now(); (function poll() {
+    if (window.midenWallet) return res(window.midenWallet);
+    if (Date.now() - t0 > ms) return res(null);
+    setTimeout(poll, 150);
+  })(); });
+}
+
+// ---- merging progress from two devices: keep the best of both ----
+function snapshot() { return { v: 1, stats, dailyDone: dailyDone(), seenGuide: !!store.get('seenGuide', false) }; }
+function mergeRemote(d) {
+  if (!d || typeof d !== 'object') return false;
+  let changed = false;
+  const MAXK = ['started', 'won', 'perfect', 'totalTime', 'totalScore', 'bestScore', 'streak', 'bestStreak'];
+  if (d.stats) for (const lv of LEVEL_KEYS) {
+    const a = stats[lv], b = d.stats[lv]; if (!b) continue;
+    for (const k of MAXK) if ((b[k] || 0) > (a[k] || 0)) { a[k] = b[k]; changed = true; }
+    if (b.bestTime && (!a.bestTime || b.bestTime < a.bestTime)) { a.bestTime = b.bestTime; changed = true; }
+  }
+  if (d.dailyDone) {
+    const dd = dailyDone();
+    for (const k in d.dailyDone) { const r = d.dailyDone[k]; if (!r) continue;
+      if (!dd[k] || (r.time && r.time < dd[k].time)) { dd[k] = r; changed = true; } }
+    if (changed) store.set('dailyDone', dd, true);
+  }
+  if (d.seenGuide && !store.get('seenGuide', false)) { store.set('seenGuide', true, true); changed = true; }
+  if (changed) store.set('stats', stats, true);
+  return changed;
+}
+async function syncNow() {
+  if (!acct || !acct.token || syncing) return;
+  syncing = true;
+  try {
+    const remote = await api('/progress', undefined, acct.token);
+    if (mergeRemote(remote.data)) { if (current === 'home') renderHome(); if (current === 'stats') renderStats(); if (current === 'daily') renderDaily(); if (current === 'awards') renderAwards(); }
+    const saved = await api('/progress', snapshot(), acct.token);
+    acct.synced = saved.updated || Date.now(); acct.error = null;
+  } catch (e) {
+    if (e.status === 401) { acct.token = null; acct.error = 'expired'; }
+    else acct.error = 'offline';
+  }
+  syncing = false;
+  store.set('acct', acct, true); renderBread();
+}
+function scheduleSync() { if (!acct || !acct.token) return; clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 1500); }
+storeHook = k => { if (k === 'stats' || k === 'dailyDone') scheduleSync(); };
+
+// ---- connecting and signing in ----
+function breadBusy(msg) {
+  openModal(breadIco + '<h2>Sign in with Bread</h2><p>' + msg + '</p><div style="display:grid;place-items:center;margin-top:18px"><div class="spinner"></div></div>' +
+    '<div class="acts"><button class="btn ghost" id="mCancel">Cancel</button></div>');
+  $('mCancel').onclick = () => { breadCancelled = true; closeModal(); };
+}
+let breadCancelled = false;
+function breadFail(e) {
+  const m = errText(e);
+  let msg = 'Something went wrong: ' + m;
+  if (/NOT_GRANTED|Not Found|declin|reject|denied/i.test(m)) msg = 'The request was declined in Bread. Nothing was changed.';
+  else if (/LOGIN_KEY_UNAVAILABLE/.test(m)) msg = 'This Bread account can\'t sign in to websites on this device. Accounts imported from a single private key don\'t have a login key. Your progress keeps saving on this device.';
+  else if (/INVALID_PARAMS/.test(m) && /https/i.test(m)) msg = 'Bread only signs in on secure (https) pages. Open https://midensudoku.xyz and try again.';
+  else if (/NETWORK_NOT_GRANTED/.test(m)) msg = 'Bread is on a network this game didn\'t ask for. Switch Bread to Mainnet or Testnet and try again.';
+  else if (/timed? ?out|timeout/i.test(m)) msg = 'Bread didn\'t answer in time. Open Bread and try again.';
+  else if (/Miden toolkit|Poseidon2|FeltArray|Failed to fetch dynamically|import/i.test(m)) msg = 'The sign-in tools didn\'t load: ' + m + '. Check your connection and try again.';
+  openModal(breadIco + '<h2>Couldn\'t sign in</h2><p>' + msg.replace(/</g, '&lt;') + '</p><div class="acts"><button class="btn primary" id="mRetry">Try again</button><button class="btn ghost" id="mOk">Close</button></div>');
+  $('mRetry').onclick = () => { closeModal(); connectBread(); };
+  $('mOk').onclick = closeModal;
+}
+function noBreadModal() {
+  const here = location.href.split('#')[0];
+  if (IS_PHONE) {
+    openModal(breadIco + '<h2>Open in Bread</h2><p>To sign in, open Miden Sudoku inside the Bread app. Your progress will then follow you to any device.</p>' +
+      '<div class="acts"><a class="btn primary" style="display:grid;place-items:center;text-decoration:none" href="https://bread.miden.xyz/open#url=' + encodeURIComponent(here) + '">Open in Bread</a>' +
+      '<a class="btn ghost" style="display:grid;place-items:center;text-decoration:none" href="https://www.miden.xyz/wallet" target="_blank" rel="noopener">Get Bread</a></div>');
+  } else {
+    openModal(breadIco + '<h2>Bread not found</h2><p>Install the Bread extension for Chrome, then come back to this page. If you just installed it, reload the page.</p>' +
+      '<div class="acts"><button class="btn primary" id="mRetry">I\'ve installed it</button>' +
+      '<a class="btn ghost" style="display:grid;place-items:center;text-decoration:none" href="https://www.miden.xyz/wallet" target="_blank" rel="noopener">Get Bread</a></div>');
+    $('mRetry').onclick = () => location.reload();
+  }
+}
+function previewModal() {
+  openModal(breadIco + '<h2>Connect Bread</h2><p>Bread can\'t connect inside this preview. Open the game at midensudoku.xyz to sign in with Bread and keep your progress on every device.</p>' +
+    '<div class="acts"><a class="btn primary" style="display:grid;place-items:center;text-decoration:none" href="https://midensudoku.xyz" target="_blank" rel="noopener">Open midensudoku.xyz</a><button class="btn ghost" id="mOk">Close</button></div>');
+  $('mOk').onclick = closeModal;
+}
+
+// Miden's toolkit (copied to /miden at build time) builds Bread's login message in the browser:
+// M = Poseidon2([T0..T3, W0..W3]), where T is "Bread login v1" packed 4 bytes per element.
+let midenMod = null;
+async function loadMiden() {
+  if (midenMod) return midenMod;
+  const r = await fetch('/miden/entry.json');
+  if (!r.ok) throw new Error('Miden toolkit files are missing on the server');
+  const info = await r.json();
+  const m = await import('/miden/' + info.entry);
+  if (m.MidenClient && typeof m.MidenClient.ready === 'function') await m.MidenClient.ready();
+  else if (typeof m.ready === 'function') await m.ready();
+  midenMod = m; return m;
+}
+async function loginMessageHex(wordHex) {
+  const m = await loadMiden();
+  const b = fromHex(wordHex);
+  const u64 = o => { let v = 0n; for (let i = 7; i >= 0; i--) v = (v << 8n) | BigInt(b[o + i]); return v; };
+  const vals = [0x61657242n, 0x6f6c2064n, 0x206e6967n, 0x00003176n, u64(0), u64(8), u64(16), u64(24)];
+  const M = m.Poseidon2.hashElements(new m.FeltArray(vals.map(v => new m.Felt(v))));
+  return toHex(M.serialize());
+}
+
+async function connectBread() {
+  if (IN_FRAME) return previewModal();
+  breadCancelled = false;
+  let w = window.midenWallet;
+  if (!w) { breadBusy('Looking for Bread…'); w = await waitForWallet(IS_PHONE ? 3000 : 1200); }
+  if (breadCancelled) return;
+  if (!w) return noBreadModal();
+  try {
+    breadBusy('Approve the connection in Bread.');
+    try { await w.connect('UPON_REQUEST', 'testnet', 0); }
+    catch (e) { if (/NETWORK_NOT_GRANTED/.test(errText(e))) await w.connect('UPON_REQUEST', 'mainnet', 0); else throw e; }
+    if (breadCancelled) return;
+    const address = String(w.address || w.accountId || (w.publicKey ? '0x' + toHex(w.publicKey) : '') || '');
+    const { loginKey } = await w.requestLoginKey();
+    const ch = await api('/challenge', {});
+    breadBusy('Preparing sign-in…');
+    const message = await loginMessageHex(ch.word);
+    if (breadCancelled) return;
+    breadBusy('Approve "Sign in to ' + location.hostname + '" in Bread.');
+    const signed = await w.signLoginBytes(fromHex(ch.word), 'word');
+    if (breadCancelled) return;
+    breadBusy('Checking your signature…');
+    const res = await api('/login', { id: ch.id, signature: toHex(signed.signature || signed), message, loginKey: toHex(loginKey) });
+    acct = { address, player: res.player, token: res.token, synced: 0 };
+    store.set('acct', acct, true);
+    await syncNow();
+    closeModal(); sfx('bonus'); toast('Signed in with Bread'); renderBread();
+  } catch (e) { if (!breadCancelled) breadFail(e); }
+}
+async function disconnectBread() {
+  const a = acct; acct = null; store.set('acct', null, true); renderBread();
+  try { if (a && a.token) await api('/logout', {}, a.token); } catch (e) {}
+  try { if (window.midenWallet && window.midenWallet.disconnect) await window.midenWallet.disconnect(); } catch (e) {}
+  toast('Disconnected. Progress stays on this device');
+}
+function accountModal() {
+  const when = acct.synced ? new Date(acct.synced).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'not yet';
+  const status = acct.error === 'expired' || !acct.token ? 'Sign-in expired. Sign in again to keep syncing.' : acct.error === 'offline' ? 'Couldn\'t reach the server. It will retry.' : '';
+  openModal(breadIco + '<h2>Bread wallet</h2><p style="word-break:break-all">' + (acct.address || 'Connected') + '</p>' +
+    '<div class="rows">' + (status ? '<div>Status<b style="font-weight:700;max-width:60%;text-align:right">' + status + '</b></div>' : '') + '<div>Last synced<b>' + when + '</b></div></div>' +
+    '<div class="acts">' + (acct.token ? '<button class="btn primary" id="mSync">Sync now</button>' : '<button class="btn primary" id="mSign">Sign in again</button>') +
+    '<button class="btn soft" id="mOut">Disconnect</button><button class="btn ghost" id="mOk">Close</button></div>');
+  if ($('mSync')) $('mSync').onclick = async () => { $('mSync').textContent = 'Syncing…'; await syncNow(); closeModal(); toast(acct && !acct.error ? 'Synced' : 'Couldn\'t sync right now'); };
+  if ($('mSign')) $('mSign').onclick = () => { closeModal(); connectBread(); };
+  $('mOut').onclick = () => { closeModal(); disconnectBread(); };
+  $('mOk').onclick = closeModal;
+}
+function renderBread() {
+  const on = !!acct;
+  document.querySelectorAll('.bread-pill').forEach(p => {
+    p.innerHTML = WALLET_ICON.replace('width="38" height="38"', 'width="20" height="20"') + (on ? shortAddr(acct.address) + '<i class="bread-dot' + (acct.token && !acct.error ? '' : ' warn') + '"></i>' : 'Connect Bread');
+    p.setAttribute('aria-label', on ? 'Bread wallet connected' : 'Connect Bread wallet');
+  });
+  const card = document.querySelector('.bread-card');
+  if (card) {
+    card.querySelector('.bc-sub').textContent = !on ? 'Not connected' : (acct.token && !acct.error ? shortAddr(acct.address) : shortAddr(acct.address) + ' · Sign in again');
+    const btn = card.querySelector('.bread-btn');
+    btn.textContent = on ? 'Manage' : 'Connect';
+    btn.classList.toggle('on', on);
+  }
+}
+document.querySelectorAll('[data-bread]').forEach(b => b.addEventListener('click', () => { sfx('tap'); if (acct) accountModal(); else connectBread(); }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleSync(); });
+renderBread();
+if (acct && acct.token && !IN_FRAME) setTimeout(syncNow, 1200);
 
 /* ---------------- start ---------------- */
 request('d:' + todayKey());
