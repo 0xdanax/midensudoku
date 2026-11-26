@@ -6,6 +6,7 @@ Files in this folder:
 - `src/worker.js`: the server (Bread sign-in check and cloud saves)
 - `wrangler.jsonc`: Cloudflare settings
 - `package.json`: the libraries Cloudflare installs (Miden SDK, noble)
+- `scripts/copy-miden.mjs`: copies Miden's browser toolkit into `public/miden` during the build
 
 ## 1. Create the database
 
@@ -30,14 +31,14 @@ The server creates its tables by itself the first time it runs.
 
 In your Worker, open **Settings → Build**:
 
-- Build command: `npm install`
+- Build command: `npm install && npm run build`
 - Deploy command: `npx wrangler deploy`
 
 Cloudflare rebuilds automatically after each commit. Watch the deployment under **Deployments**.
 
 ## 5. Test
 
-1. Open https://midensudoku.xyz/api/health. It should show `"ok":true`, with `database`, `miden` and `noble` all `true`. If not, copy what it shows.
+1. Open https://midensudoku.xyz/api/health. It should show `"ok":true`, with `database`, `signatures` and `midenFiles` all `true`. If not, copy what it shows.
 2. On a phone: open midensudoku.xyz, tap **Connect Bread**, and choose **Open in Bread**. In Bread, tap Connect Bread again and approve both requests.
 3. On a computer: install the Bread extension for Chrome, open midensudoku.xyz, then tap **Connect Bread**.
 4. Win a game on one device, then sign in on another. Your stats should appear there.

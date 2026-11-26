@@ -1911,6 +1911,7 @@ function breadFail(e) {
   else if (/INVALID_PARAMS/.test(m) && /https/i.test(m)) msg = 'Bread only signs in on secure (https) pages. Open https://midensudoku.xyz and try again.';
   else if (/NETWORK_NOT_GRANTED/.test(m)) msg = 'Bread is on a network this game didn\'t ask for. Switch Bread to Mainnet or Testnet and try again.';
   else if (/timed? ?out|timeout/i.test(m)) msg = 'Bread didn\'t answer in time. Open Bread and try again.';
+  else if (/Miden toolkit|Poseidon2|FeltArray|Failed to fetch dynamically|import/i.test(m)) msg = 'The sign-in tools didn\'t load: ' + m + '. Check your connection and try again.';
   openModal(breadIco + '<h2>Couldn\'t sign in</h2><p>' + msg.replace(/</g, '&lt;') + '</p><div class="acts"><button class="btn primary" id="mRetry">Try again</button><button class="btn ghost" id="mOk">Close</button></div>');
   $('mRetry').onclick = () => { closeModal(); connectBread(); };
   $('mOk').onclick = closeModal;
@@ -1934,6 +1935,28 @@ function previewModal() {
   $('mOk').onclick = closeModal;
 }
 
+// Miden's toolkit (copied to /miden at build time) builds Bread's login message in the browser:
+// M = Poseidon2([T0..T3, W0..W3]), where T is "Bread login v1" packed 4 bytes per element.
+let midenMod = null;
+async function loadMiden() {
+  if (midenMod) return midenMod;
+  const r = await fetch('/miden/entry.json');
+  if (!r.ok) throw new Error('Miden toolkit files are missing on the server');
+  const info = await r.json();
+  const m = await import('/miden/' + info.entry);
+  if (m.MidenClient && typeof m.MidenClient.ready === 'function') await m.MidenClient.ready();
+  else if (typeof m.ready === 'function') await m.ready();
+  midenMod = m; return m;
+}
+async function loginMessageHex(wordHex) {
+  const m = await loadMiden();
+  const b = fromHex(wordHex);
+  const u64 = o => { let v = 0n; for (let i = 7; i >= 0; i--) v = (v << 8n) | BigInt(b[o + i]); return v; };
+  const vals = [0x61657242n, 0x6f6c2064n, 0x206e6967n, 0x00003176n, u64(0), u64(8), u64(16), u64(24)];
+  const M = m.Poseidon2.hashElements(new m.FeltArray(vals.map(v => new m.Felt(v))));
+  return toHex(M.serialize());
+}
+
 async function connectBread() {
   if (IN_FRAME) return previewModal();
   breadCancelled = false;
@@ -1949,11 +1972,14 @@ async function connectBread() {
     const address = String(w.address || w.accountId || (w.publicKey ? '0x' + toHex(w.publicKey) : '') || '');
     const { loginKey } = await w.requestLoginKey();
     const ch = await api('/challenge', {});
+    breadBusy('Preparing sign-in…');
+    const message = await loginMessageHex(ch.word);
+    if (breadCancelled) return;
     breadBusy('Approve "Sign in to ' + location.hostname + '" in Bread.');
     const signed = await w.signLoginBytes(fromHex(ch.word), 'word');
     if (breadCancelled) return;
     breadBusy('Checking your signature…');
-    const res = await api('/login', { id: ch.id, signature: toHex(signed.signature || signed), loginKey: toHex(loginKey) });
+    const res = await api('/login', { id: ch.id, signature: toHex(signed.signature || signed), message, loginKey: toHex(loginKey) });
     acct = { address, player: res.player, token: res.token, synced: 0 };
     store.set('acct', acct, true);
     await syncNow();
