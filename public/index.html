@@ -1983,7 +1983,7 @@ async function connectBread() {
     acct = { address, player: res.player, token: res.token, synced: 0 };
     store.set('acct', acct, true);
     await syncNow();
-    closeModal(); sfx('bonus'); toast('Signed in. Cloud save is on'); renderBread();
+    closeModal(); sfx('bonus'); toast('Signed in with Bread'); renderBread();
   } catch (e) { if (!breadCancelled) breadFail(e); }
 }
 async function disconnectBread() {
@@ -1994,9 +1994,9 @@ async function disconnectBread() {
 }
 function accountModal() {
   const when = acct.synced ? new Date(acct.synced).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'not yet';
-  const status = acct.error === 'expired' || !acct.token ? 'Sign-in expired. Sign in again to keep syncing.' : acct.error === 'offline' ? 'Couldn\'t reach the server. It will retry.' : 'Cloud save is on.';
+  const status = acct.error === 'expired' || !acct.token ? 'Sign-in expired. Sign in again to keep syncing.' : acct.error === 'offline' ? 'Couldn\'t reach the server. It will retry.' : '';
   openModal(breadIco + '<h2>Bread wallet</h2><p style="word-break:break-all">' + (acct.address || 'Connected') + '</p>' +
-    '<div class="rows"><div>Status<b style="font-weight:700;max-width:60%;text-align:right">' + status + '</b></div><div>Last synced<b>' + when + '</b></div></div>' +
+    '<div class="rows">' + (status ? '<div>Status<b style="font-weight:700;max-width:60%;text-align:right">' + status + '</b></div>' : '') + '<div>Last synced<b>' + when + '</b></div></div>' +
     '<div class="acts">' + (acct.token ? '<button class="btn primary" id="mSync">Sync now</button>' : '<button class="btn primary" id="mSign">Sign in again</button>') +
     '<button class="btn soft" id="mOut">Disconnect</button><button class="btn ghost" id="mOk">Close</button></div>');
   if ($('mSync')) $('mSync').onclick = async () => { $('mSync').textContent = 'Syncing…'; await syncNow(); closeModal(); toast(acct && !acct.error ? 'Synced' : 'Couldn\'t sync right now'); };
@@ -2012,7 +2012,7 @@ function renderBread() {
   });
   const card = document.querySelector('.bread-card');
   if (card) {
-    card.querySelector('.bc-sub').textContent = !on ? 'Not connected' : (acct.token && !acct.error ? shortAddr(acct.address) + ' · Cloud save on' : shortAddr(acct.address) + ' · Sign in again');
+    card.querySelector('.bc-sub').textContent = !on ? 'Not connected' : (acct.token && !acct.error ? shortAddr(acct.address) : shortAddr(acct.address) + ' · Sign in again');
     const btn = card.querySelector('.bread-btn');
     btn.textContent = on ? 'Manage' : 'Connect';
     btn.classList.toggle('on', on);
